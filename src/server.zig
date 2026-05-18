@@ -2,8 +2,12 @@ const std = @import("std");
 const open62541 = @import("open62541");
 const helper = @import("helper.zig");
 
+const binary_id = 1;
+const xml_id = 2;
+
 pub fn main(init: std.process.Init) !void {
     _ = init;
+    const gpa = std.heap.c_allocator;
     errdefer {
         if (@errorReturnTrace()) |trace| {
             std.debug.dumpErrorReturnTrace(trace);
@@ -14,7 +18,24 @@ pub fn main(init: std.process.Init) !void {
         _ = open62541.UA_Server_delete(server);
         std.log.info("Server deleted properly", .{});
     }
-    try simulatePLCInformationModel(server);
+    const data_type, const types = try simulatePLCInformationModel(server, gpa);
+    defer {
+        {
+            const extern_data = data_type.extern_data_type;
+            for (extern_data.members[0..extern_data.flags.membersSize]) |member| {
+                const member_type = member.memberType;
+                std.log.debug("{s} -- {t}", .{
+                    member.memberName,
+                    @as(
+                        helper.UADataTypeKind,
+                        @enumFromInt(open62541.UA_DataType_get_typeKind(member_type)),
+                    ),
+                });
+            }
+        }
+        types.deinit(gpa);
+        data_type.deinit(gpa);
+    }
     _addVariable(server);
     // var new_value: u32 = 43;
     // writeVariable(server, &new_value);
@@ -94,11 +115,15 @@ fn writeVariable(server: ?*open62541.struct_UA_Server, val: *u32) void {
     }
 }
 
-fn simulatePLCInformationModel(server: ?*open62541.UA_Server) !void {
+fn simulatePLCInformationModel(
+    server: ?*open62541.UA_Server,
+    gpa: std.mem.Allocator,
+) !struct { helper.UA_DataType.Extended, helper.CustomDataTypes } {
     const ns_idx = 1;
     // Add Dummy Data Type
-    const dummy_data_type = try addDataType(
+    var data_type_extended = try addDataType(
         server,
+        gpa,
         ns_idx,
         helper.OPCNodeData,
         "OPC_Node_Data_Type",
@@ -106,25 +131,39 @@ fn simulatePLCInformationModel(server: ?*open62541.UA_Server) !void {
         open62541.UA_NODEID_NUMERIC(0, open62541.UA_NS0ID_STRUCTURE),
         open62541.UA_NODEID_NUMERIC(0, open62541.UA_NS0ID_HASSUBTYPE),
     );
-    // const config = open62541.UA_Server_getConfig(server);
-    // var customDataTypes: open62541.UA_DataTypeArray = .{
-    //     .next = config.*.customDataTypes,
-    //     .typesSize = 1,
-    //     .types = @ptrCast(@alignCast(&dummy_data_type)),
-    //     .cleanup = false,
-    // };
-    // config.*.customDataTypes = &customDataTypes;
+    const types: helper.CustomDataTypes = try .init(gpa, 1);
+    errdefer types.deinit(gpa);
+    types.types[0] = data_type_extended.extern_data_type;
+    const custom_data_types = try gpa.create(open62541.UA_DataTypeArray);
+    errdefer gpa.destroy(custom_data_types);
+    const config = open62541.UA_Server_getConfig(server);
+    try helper.checkStatusCode(
+        open62541.UA_ServerConfig_setDefault(config),
+    );
+    custom_data_types.* = .{
+        .next = config.*.customDataTypes,
+        .typesSize = 1,
+        .types = @ptrCast(types.types),
+        .cleanup = false,
+    };
+    config.*.customDataTypes = @ptrCast(custom_data_types);
     // Add Dummy variable type node
     const dummy_variable_type_node = try addVariableType(
         server,
         ns_idx,
         helper.OPCNodeData,
-        dummy_data_type,
+        &data_type_extended.extern_data_type,
         "OPC_Node_Data_Variable_Type",
         "OPC Node Data",
-        open62541.UA_NODEID_NUMERIC(0, open62541.UA_NS0ID_BASEDATAVARIABLETYPE),
+        open62541.UA_NODEID_NUMERIC(
+            0,
+            open62541.UA_NS0ID_BASEDATAVARIABLETYPE,
+        ),
         open62541.UA_NODEID_NUMERIC(0, open62541.UA_NS0ID_HASSUBTYPE),
-        open62541.UA_NODEID_NUMERIC(0, open62541.UA_NS0ID_BASEDATAVARIABLETYPE),
+        open62541.UA_NODEID_NUMERIC(
+            0,
+            open62541.UA_NS0ID_BASEDATAVARIABLETYPE,
+        ),
     );
     // Add new_Controller_0 object into Object folder
     const controller_node = try addObject(
@@ -161,7 +200,7 @@ fn simulatePLCInformationModel(server: ?*open62541.UA_Server) !void {
         ns_idx,
         helper.OPCNodeData,
         &init_val,
-        dummy_data_type,
+        &data_type_extended.extern_data_type,
         "OPC_Node_Data",
         "OPC Node Data",
         global_vars_node,
@@ -175,6 +214,7 @@ fn simulatePLCInformationModel(server: ?*open62541.UA_Server) !void {
         "{}",
         .{@as(*helper.OPCNodeData, @ptrCast(@alignCast(variant.data)))},
     );
+    return .{ data_type_extended, types };
 }
 
 /// Create data type that can be easily used for creating variable in server.
@@ -182,15 +222,17 @@ fn simulatePLCInformationModel(server: ?*open62541.UA_Server) !void {
 /// opaque type.
 fn addDataType(
     server: ?*open62541.UA_Server,
+    gpa: std.mem.Allocator,
     ns_idx: open62541.UA_UInt16,
     T: type,
     node_identifier_string: []const u8,
     node_display_name: []const u8,
     parent_node_id: open62541.UA_NodeId,
     parent_reference_node_id: open62541.UA_NodeId,
-) !helper.UA_DataType {
+) !helper.UA_DataType.Extended {
     if (@typeInfo(T) != .@"struct") @compileError("Type must be struct");
-    const res: helper.UA_DataType = .create(
+    const res: helper.UA_DataType.Extended = try .init(
+        gpa,
         T,
         "OPC Node Data",
         open62541.UA_NODEID_STRING(
@@ -215,10 +257,13 @@ fn addDataType(
 
     const code = open62541.UA_Server_addDataTypeNode(
         server,
-        res.typeId,
+        res.extern_data_type.typeId,
         parent_node_id,
         parent_reference_node_id,
-        open62541.UA_QUALIFIEDNAME(ns_idx, @ptrCast(@constCast(node_display_name))),
+        open62541.UA_QUALIFIEDNAME(
+            ns_idx,
+            @ptrCast(@constCast(node_identifier_string)),
+        ),
         attr,
         null,
         null,
@@ -232,7 +277,7 @@ fn addVariableType(
     server: ?*open62541.UA_Server,
     ns_idx: open62541.UA_UInt16,
     T: type,
-    data_type: helper.UA_DataType,
+    data_type: *helper.UA_DataType.Extern,
     node_identifier_string: []const u8,
     node_display_name: []const u8,
     parent_node_id: open62541.UA_NodeId,
@@ -252,10 +297,13 @@ fn addVariableType(
     attr.dataType = data_type.typeId;
     attr.valueRank = open62541.UA_VALUERANK_SCALAR;
     var zero_val = std.mem.zeroInit(T, .{});
+    std.log.debug("{}", .{zero_val});
+    // This method is a shortcut to get the custom data types that is already added to the server. The examples use actual UA_DataType, but since UA_DataType is opaque, we have problem in casting it.
+    const config = open62541.UA_Server_getConfig(server);
     open62541.UA_Variant_setScalar(
         &attr.value,
         @ptrCast(&zero_val),
-        @ptrCast(@alignCast(&data_type)),
+        config.*.customDataTypes.*.types,
     );
 
     const code = open62541.UA_Server_addVariableTypeNode(
@@ -263,7 +311,10 @@ fn addVariableType(
         res,
         parent_node_id,
         parent_reference_node_id,
-        open62541.UA_QUALIFIEDNAME(ns_idx, @ptrCast(@constCast(node_display_name))),
+        open62541.UA_QUALIFIEDNAME(
+            ns_idx,
+            @ptrCast(@constCast(node_identifier_string)),
+        ),
         type_definition_node_id,
         attr,
         null,
@@ -279,7 +330,7 @@ fn addVariable(
     ns_idx: open62541.UA_UInt16,
     T: type,
     val: *T,
-    data_type: helper.UA_DataType,
+    data_type: *helper.UA_DataType.Extern,
     node_identifier_string: []const u8,
     node_display_name: []const u8,
     parent_node_id: open62541.UA_NodeId,
@@ -298,10 +349,11 @@ fn addVariable(
     );
     attr.dataType = data_type.typeId;
     attr.valueRank = open62541.UA_VALUERANK_SCALAR;
+    const config = open62541.UA_Server_getConfig(server);
     open62541.UA_Variant_setScalar(
         &attr.value,
-        @ptrCast(@alignCast(val)),
-        @ptrCast(@alignCast(&data_type)),
+        @ptrCast(val),
+        config.*.customDataTypes.*.types,
     );
 
     const code = open62541.UA_Server_addVariableNode(

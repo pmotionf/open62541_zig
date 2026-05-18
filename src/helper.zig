@@ -144,12 +144,24 @@ pub const UADataTypeKind = enum(std.math.IntFittingRange(
 
 pub var NodeDataType: UA_DataType = undefined;
 
+pub const CustomDataTypes = struct {
+    types: []UA_DataType.Extern,
+
+    pub fn init(gpa: std.mem.Allocator, size: usize) !CustomDataTypes {
+        return .{ .types = try gpa.alloc(UA_DataType.Extern, size) };
+    }
+
+    pub fn deinit(self: CustomDataTypes, gpa: std.mem.Allocator) void {
+        gpa.free(self.types);
+    }
+};
+
 pub const OPCNodeData = extern struct {
     LineNo: open62541.UA_Int16,
     BoardNo: open62541.UA_Int16,
     MotorNo: open62541.UA_Int16,
     IsShuttle: open62541.UA_Int16,
-    ConnetLines: [3]open62541.UA_Int16, // ARRAY[0..2] of INT
+    // ConnetLines: [3]open62541.UA_Int16, // ARRAY[0..2] of INT
     CarrierID: open62541.UA_Int16,
     CarrierState: open62541.UA_Int16,
     ConnectCCLink: open62541.UA_Boolean,
@@ -167,286 +179,36 @@ pub const OPCNodeData = extern struct {
     WaitPull: open62541.UA_Boolean,
     WaitPush: open62541.UA_Boolean,
     Test: open62541.UA_Int16,
-
-    pub fn createDataType() UA_DataType {
-        var members: [@typeInfo(OPCNodeData).@"struct".fields.len]UA_DataType.Member =
-            undefined;
-        const ti = @typeInfo(OPCNodeData).@"struct";
-        inline for (ti.fields, 0..) |field, i| {
-            members[i] = .{
-                .memberName = @constCast(field.name),
-                .memberType = typeToDataType(field.type),
-                .flags = .{
-                    .padding = if (i == 0)
-                        0
-                    else
-                        @bitOffsetOf(OPCNodeData, field.name) -
-                            @offsetOf(OPCNodeData, ti.fields[i - 1].name) -
-                            @sizeOf(ti.fields[i - 1].type),
-                    .isArray = if (@typeInfo(field.type) == .array)
-                        true
-                    else
-                        false,
-                    .isOptional = false,
-                },
-            };
-        }
-        return .{
-            .typeName = 0,
-            .typeId = 0,
-            .binaryEncodingId = 0,
-            .xmlEncodingId = 0,
-            .flags = 0,
-            .members = 0,
-        };
-        // members[0] = .{
-        //     .memberName = @constCast("LineNo"),
-        //     .memberType = open62541.UA_DataType_get(open62541.UA_TYPES_UINT16),
-        //     .flags = .{
-        //         .padding = 0,
-        //         .isArray = false,
-        //         .isOptional = false,
-        //     },
-        // };
-        // members[1] = .{
-        //     .memberName = @constCast("BoardNo"),
-        //     .memberType = open62541.UA_DataType_get(open62541.UA_TYPES_UINT16),
-        //     .flags = .{
-        //         .padding = @offsetOf(OPCNodeData, "BoardNo") - @offsetOf(OPCNodeData, "LineNo") - @sizeOf(@TypeOf(@field(OPCNodeData, "LineNo"))),
-        //         .isArray = false,
-        //         .isOptional = false,
-        //     },
-        // };
-        // members[2] = .{
-        //     .memberName = @constCast("MotorNo"),
-        //     .memberType = open62541.UA_DataType_get(open62541.UA_TYPES_UINT16),
-        //     .flags = .{
-        //         .padding = @bitOffsetOf(OPCNodeData, "MotorNo") -
-        //             @offsetOf(OPCNodeData, "BoardNo") -
-        //             @sizeOf(@TypeOf(@field(OPCNodeData, "BoardNo"))),
-        //         .isArray = false,
-        //         .isOptional = false,
-        //     },
-        // };
-        // members[3] = .{
-        //     .memberName = @constCast("IsShuttle"),
-        //     .memberType = open62541.UA_DataType_get(open62541.UA_TYPES_UINT16),
-        //     .flags = .{
-        //         .padding = @bitOffsetOf(OPCNodeData, "IsShuttle") -
-        //             @offsetOf(OPCNodeData, "MotorNo") -
-        //             @sizeOf(@TypeOf(@field(OPCNodeData, "MotorNo"))),
-        //         .isArray = false,
-        //         .isOptional = false,
-        //     },
-        // };
-        // members[4] = .{
-        //     .memberName = @constCast("ConnetLines"),
-        //     .memberType = open62541.UA_DataType_get(open62541.UA_TYPES_UINT16),
-        //     .flags = .{
-        //         .padding = @bitOffsetOf(OPCNodeData, "ConnetLines") -
-        //             @offsetOf(OPCNodeData, "IsShuttle") -
-        //             @sizeOf(@TypeOf(@field(OPCNodeData, "IsShuttle"))),
-        //         .isArray = true,
-        //         .isOptional = false,
-        //     },
-        // };
-        // members[5] = .{
-        //     .memberName = @constCast("CarrierID"),
-        //     .memberType = open62541.UA_DataType_get(open62541.UA_TYPES_UINT16),
-        //     .flags = .{
-        //         .padding = @bitOffsetOf(OPCNodeData, "CarrierID") -
-        //             @offsetOf(OPCNodeData, "ConnetLines") -
-        //             @sizeOf(@TypeOf(@field(OPCNodeData, "ConnetLines"))),
-        //         .isArray = false,
-        //         .isOptional = false,
-        //     },
-        // };
-        // members[6] = .{
-        //     .memberName = @constCast("CarrierState"),
-        //     .memberType = open62541.UA_DataType_get(open62541.UA_TYPES_UINT16),
-        //     .flags = .{
-        //         .padding = @bitOffsetOf(OPCNodeData, "CarrierState") -
-        //             @offsetOf(OPCNodeData, "CarrierID") -
-        //             @sizeOf(@TypeOf(@field(OPCNodeData, "CarrierID"))),
-        //         .isArray = false,
-        //         .isOptional = false,
-        //     },
-        // };
-        // members[7] = .{
-        //     .memberName = @constCast("ConnectCCLink"),
-        //     .memberType = open62541.UA_DataType_get(open62541.UA_TYPES_UINT16),
-        //     .flags = .{
-        //         .padding = @bitOffsetOf(OPCNodeData, "ConnectCCLink") -
-        //             @offsetOf(OPCNodeData, "CarrierState") -
-        //             @sizeOf(@TypeOf(@field(OPCNodeData, "CarrierState"))),
-        //         .isArray = false,
-        //         .isOptional = false,
-        //     },
-        // };
-        // members[8] = .{
-        //     .memberName = @constCast("CommandReady"),
-        //     .memberType = open62541.UA_DataType_get(open62541.UA_TYPES_UINT16),
-        //     .flags = .{
-        //         .padding = @bitOffsetOf(OPCNodeData, "CommandReady") -
-        //             @offsetOf(OPCNodeData, "ConnectCCLink") -
-        //             @sizeOf(@TypeOf(@field(OPCNodeData, "ConnectCCLink"))),
-        //         .isArray = false,
-        //         .isOptional = false,
-        //     },
-        // };
-        // members[9] = .{
-        //     .memberName = @constCast("StopEnable"),
-        //     .memberType = open62541.UA_DataType_get(open62541.UA_TYPES_UINT16),
-        //     .flags = .{
-        //         .padding = @bitOffsetOf(OPCNodeData, "StopEnable") -
-        //             @offsetOf(OPCNodeData, "CommandReady") -
-        //             @sizeOf(@TypeOf(@field(OPCNodeData, "CommandReady"))),
-        //         .isArray = false,
-        //         .isOptional = false,
-        //     },
-        // };
-        // members[10] = .{
-        //     .memberName = @constCast("MotorActive"),
-        //     .memberType = open62541.UA_DataType_get(open62541.UA_TYPES_UINT16),
-        //     .flags = .{
-        //         .padding = @bitOffsetOf(OPCNodeData, "MotorActive") -
-        //             @offsetOf(OPCNodeData, "StopEnable") -
-        //             @sizeOf(@TypeOf(@field(OPCNodeData, "StopEnable"))),
-        //         .isArray = false,
-        //         .isOptional = false,
-        //     },
-        // };
-        // members[11] = .{
-        //     .memberName = @constCast("FrontHall"),
-        //     .memberType = open62541.UA_DataType_get(open62541.UA_TYPES_UINT16),
-        //     .flags = .{
-        //         .padding = @bitOffsetOf(OPCNodeData, "FrontHall") -
-        //             @offsetOf(OPCNodeData, "MotorActive") -
-        //             @sizeOf(@TypeOf(@field(OPCNodeData, "MotorActive"))),
-        //         .isArray = false,
-        //         .isOptional = false,
-        //     },
-        // };
-        // members[12] = .{
-        //     .memberName = @constCast("BackHall"),
-        //     .memberType = open62541.UA_DataType_get(open62541.UA_TYPES_UINT16),
-        //     .flags = .{
-        //         .padding = @bitOffsetOf(OPCNodeData, "BackHall") -
-        //             @offsetOf(OPCNodeData, "FrontHall") -
-        //             @sizeOf(@TypeOf(@field(OPCNodeData, "FrontHall"))),
-        //         .isArray = false,
-        //         .isOptional = false,
-        //     },
-        // };
-        // members[13] = .{
-        //     .memberName = @constCast("UnderVoltage"),
-        //     .memberType = open62541.UA_DataType_get(open62541.UA_TYPES_UINT16),
-        //     .flags = .{
-        //         .padding = @bitOffsetOf(OPCNodeData, "UnderVoltage") -
-        //             @offsetOf(OPCNodeData, "BackHall") -
-        //             @sizeOf(@TypeOf(@field(OPCNodeData, "BackHall"))),
-        //         .isArray = false,
-        //         .isOptional = false,
-        //     },
-        // };
-        // members[14] = .{
-        //     .memberName = @constCast("OverVoltage"),
-        //     .memberType = open62541.UA_DataType_get(open62541.UA_TYPES_UINT16),
-        //     .flags = .{
-        //         .padding = @bitOffsetOf(OPCNodeData, "OverVoltage") -
-        //             @offsetOf(OPCNodeData, "UnderVoltage") -
-        //             @sizeOf(@TypeOf(@field(OPCNodeData, "UnderVoltage"))),
-        //         .isArray = false,
-        //         .isOptional = false,
-        //     },
-        // };
-        // members[15] = .{
-        //     .memberName = @constCast("BeforDriverError"),
-        //     .memberType = open62541.UA_DataType_get(open62541.UA_TYPES_UINT16),
-        //     .flags = .{
-        //         .padding = @bitOffsetOf(OPCNodeData, "BeforDriverError") -
-        //             @offsetOf(OPCNodeData, "OverVoltage") -
-        //             @sizeOf(@TypeOf(@field(OPCNodeData, "OverVoltage"))),
-        //         .isArray = false,
-        //         .isOptional = false,
-        //     },
-        // };
-        // members[16] = .{
-        //     .memberName = @constCast("AfterDriverError"),
-        //     .memberType = open62541.UA_DataType_get(open62541.UA_TYPES_UINT16),
-        //     .flags = .{
-        //         .padding = @bitOffsetOf(OPCNodeData, "AfterDriverError") -
-        //             @offsetOf(OPCNodeData, "BeforDriverError") -
-        //             @sizeOf(@TypeOf(@field(OPCNodeData, "BeforDriverError"))),
-        //         .isArray = false,
-        //         .isOptional = false,
-        //     },
-        // };
-        // members[17] = .{
-        //     .memberName = @constCast("InverterOverheat"),
-        //     .memberType = open62541.UA_DataType_get(open62541.UA_TYPES_UINT16),
-        //     .flags = .{
-        //         .padding = @bitOffsetOf(OPCNodeData, "InverterOverheat") -
-        //             @offsetOf(OPCNodeData, "AfterDriverError") -
-        //             @sizeOf(@TypeOf(@field(OPCNodeData, "AfterDriverError"))),
-        //         .isArray = false,
-        //         .isOptional = false,
-        //     },
-        // };
-        // members[18] = .{
-        //     .memberName = @constCast("OverCurrent"),
-        //     .memberType = open62541.UA_DataType_get(open62541.UA_TYPES_UINT16),
-        //     .flags = .{
-        //         .padding = @bitOffsetOf(OPCNodeData, "OverCurrent") -
-        //             @offsetOf(OPCNodeData, "InverterOverheat") -
-        //             @sizeOf(@TypeOf(@field(OPCNodeData, "InverterOverheat"))),
-        //         .isArray = false,
-        //         .isOptional = false,
-        //     },
-        // };
-        // members[19] = .{
-        //     .memberName = @constCast("WaitPull"),
-        //     .memberType = open62541.UA_DataType_get(open62541.UA_TYPES_UINT16),
-        //     .flags = .{
-        //         .padding = @bitOffsetOf(OPCNodeData, "WaitPull") -
-        //             @offsetOf(OPCNodeData, "OverCurrent") -
-        //             @sizeOf(@TypeOf(@field(OPCNodeData, "OverCurrent"))),
-        //         .isArray = false,
-        //         .isOptional = false,
-        //     },
-        // };
-        // members[20] = .{
-        //     .memberName = @constCast("WaitPush"),
-        //     .memberType = open62541.UA_DataType_get(open62541.UA_TYPES_UINT16),
-        //     .flags = .{
-        //         .padding = @bitOffsetOf(OPCNodeData, "WaitPush") -
-        //             @offsetOf(OPCNodeData, "WaitPull") -
-        //             @sizeOf(@TypeOf(@field(OPCNodeData, "WaitPull"))),
-        //         .isArray = false,
-        //         .isOptional = false,
-        //     },
-        // };
-        // members[21] = .{
-        //     .memberName = @constCast("Test"),
-        //     .memberType = open62541.UA_DataType_get(open62541.UA_TYPES_UINT16),
-        //     .flags = .{
-        //         .padding = @bitOffsetOf(OPCNodeData, "Test") -
-        //             @offsetOf(OPCNodeData, "WaitPush") -
-        //             @sizeOf(@TypeOf(@field(OPCNodeData, "WaitPush"))),
-        //         .isArray = false,
-        //         .isOptional = false,
-        //     },
-        // };
-    }
 };
 
-pub const UA_DataType = extern struct {
-    typeName: [*]const u8,
+pub const UA_DataType = struct {
+    typeName: []const u8,
     typeId: open62541.UA_NodeId,
     binaryEncodingId: open62541.UA_NodeId,
     xmlEncodingId: open62541.UA_NodeId,
     flags: UA_DataType.Flag,
-    members: [*]Member,
+    members: []Member,
+
+    pub const Extern = extern struct {
+        typeName: [*]const u8,
+        typeId: open62541.UA_NodeId,
+        binaryEncodingId: open62541.UA_NodeId,
+        xmlEncodingId: open62541.UA_NodeId,
+        flags: UA_DataType.Flag,
+        members: [*c]Member,
+
+        pub fn init(data_type: UA_DataType) Extern {
+            return .{
+                .typeName = data_type.typeName.ptr,
+                .typeId = data_type.typeId,
+                .binaryEncodingId = data_type.binaryEncodingId,
+                .xmlEncodingId = data_type.xmlEncodingId,
+                .flags = data_type.flags,
+                .members = data_type.members.ptr,
+            };
+        }
+    };
+
     pub const Flag = packed struct(u32) {
         memSize: u16,
         typeKind: u6,
@@ -470,23 +232,63 @@ pub const UA_DataType = extern struct {
         }
     };
 
-    pub fn toOpaque(self: *UA_DataType) ?*anyopaque {
-        return @ptrCast(@alignCast(self));
+    pub const Extended = struct {
+        data_type: UA_DataType,
+        extern_data_type: UA_DataType.Extern,
+
+        pub fn init(
+            gpa: std.mem.Allocator,
+            T: type,
+            name: [:0]const u8,
+            type_id: open62541.UA_NodeId,
+            binary_encoding_id: open62541.UA_NodeId,
+            xml_encoding_id: open62541.UA_NodeId,
+            flags: Flag,
+        ) !Extended {
+            const data_type: UA_DataType = try .init(
+                gpa,
+                T,
+                name,
+                type_id,
+                binary_encoding_id,
+                xml_encoding_id,
+                flags,
+            );
+            return .{
+                .data_type = data_type,
+                .extern_data_type = .init(data_type),
+            };
+        }
+
+        pub fn deinit(self: Extended, gpa: std.mem.Allocator) void {
+            self.data_type.deinit(gpa);
+        }
+    };
+
+    pub fn toExtern(self: *UA_DataType) Extern {
+        return .{
+            .typeName = self.typeName.ptr,
+            .typeId = self.typeId,
+            .binaryEncodingId = self.binaryEncodingId,
+            .xmlEncodingId = self.xmlEncodingId,
+            .flags = self.flags,
+            .members = self.members.ptr,
+        };
     }
 
-    pub fn create(
+    pub fn init(
+        gpa: std.mem.Allocator,
         T: type,
         name: [:0]const u8,
         type_id: open62541.UA_NodeId,
         binary_encoding_id: open62541.UA_NodeId,
         xml_encoding_id: open62541.UA_NodeId,
         flags: UA_DataType.Flag,
-    ) UA_DataType {
-        var members: [@typeInfo(T).@"struct".fields.len]UA_DataType.Member =
-            undefined;
+    ) !UA_DataType {
         const ti = @typeInfo(T).@"struct";
+        var members = try gpa.alloc(UA_DataType.Member, ti.fields.len);
+        errdefer gpa.free(members);
         inline for (ti.fields, 0..) |field, i| {
-            // @compileLog(field.name, @offsetOf(T, field.name));
             members[i] = .{
                 .memberName = @constCast(field.name),
                 .memberType = typeToDataType(field.type),
@@ -504,21 +306,20 @@ pub const UA_DataType = extern struct {
                     .isOptional = false,
                 },
             };
-            // @compileLog(
-            //     if (@typeInfo(field.type) == .array)
-            //         true
-            //     else
-            //         false,
-            // );
         }
         return .{
-            .typeName = @ptrCast(@constCast(name)),
+            .typeName = try gpa.dupe(u8, name),
             .typeId = type_id,
             .binaryEncodingId = binary_encoding_id,
             .xmlEncodingId = xml_encoding_id,
             .flags = flags,
-            .members = &members,
+            .members = members,
         };
+    }
+
+    pub fn deinit(self: UA_DataType, gpa: std.mem.Allocator) void {
+        gpa.free(self.typeName);
+        gpa.free(self.members);
     }
 };
 

@@ -15,6 +15,17 @@ pub fn main(init: std.process.Init) !void {
     try helper.checkStatusCode(retval);
     retval = open62541.UA_Client_connect(client, @constCast("opc.tcp://fedora:4840"));
     try helper.checkStatusCode(retval);
+    const config = open62541.UA_Client_getConfig(client);
+    var custom_data_types: [*c]open62541.UA_DataTypeArray = null;
+    try helper.checkStatusCode(
+        open62541.UA_Client_getRemoteDataTypes(
+            client,
+            0,
+            null,
+            &custom_data_types,
+        ),
+    );
+    config.*.customDataTypes = custom_data_types;
 
     // Read value
     const node_id = open62541.UA_NODEID_NUMERIC(
