@@ -161,7 +161,7 @@ pub const OPCNodeData = extern struct {
     BoardNo: open62541.UA_Int16,
     MotorNo: open62541.UA_Int16,
     IsShuttle: open62541.UA_Int16,
-    // ConnetLines: [3]open62541.UA_Int16, // ARRAY[0..2] of INT
+    ConnetLines: Slice(open62541.UA_Int16), // ARRAY[0..2] of INT
     CarrierID: open62541.UA_Int16,
     CarrierState: open62541.UA_Int16,
     ConnectCCLink: open62541.UA_Boolean,
@@ -179,6 +179,65 @@ pub const OPCNodeData = extern struct {
     WaitPull: open62541.UA_Boolean,
     WaitPush: open62541.UA_Boolean,
     Test: open62541.UA_Int16,
+
+    fn Slice(T: type) type {
+        return @Struct(
+            .@"extern",
+            null,
+            &.{ "len", "ptr" },
+            &.{ usize, [*]allowzero T },
+            &.{ .{}, .{} },
+        );
+    }
+
+    pub fn format(
+        self: @This(),
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
+        std.debug.assert(@typeInfo(@TypeOf(self)) == .@"struct");
+        try writer.writeAll("\nOPC Node Data: .{\n");
+        const ti = @typeInfo(@TypeOf(self)).@"struct";
+        inline for (ti.fields) |field| {
+            try writer.writeAll("    ");
+            const field_ti = @typeInfo(field.type);
+            switch (field_ti) {
+                .bool, .int, .float => {
+                    try writer.print(
+                        "{s}: {},\n",
+                        .{ field.name, @field(self, field.name) },
+                    );
+                },
+                .@"enum" => {
+                    try writer.print(
+                        "{s}: {t},\n",
+                        .{ field.name, @field(self, field.name) },
+                    );
+                },
+                .@"struct" => {
+                    if (@hasField(field.type, "ptr") and
+                        @hasField(field.type, "len"))
+                    {
+                        const slice = @field(self, field.name);
+                        const ptr = @field(slice, "ptr");
+                        const len = @field(slice, "len");
+                        try writer.print("{s}: {{", .{field.name});
+                        for (0..len) |i| {
+                            if (i == len - 1) {
+                                try writer.print("{}}},", .{ptr[i]});
+                            } else {
+                                try writer.print("{}, ", .{ptr[i]});
+                            }
+                        }
+                    } else {
+                        @compileError("Unsupported printing format.");
+                    }
+                    try writer.writeByte('\n');
+                },
+                else => unreachable,
+            }
+        }
+        try writer.writeAll("}");
+    }
 };
 
 pub const UA_DataType = struct {
@@ -299,7 +358,8 @@ pub const UA_DataType = struct {
                         @offsetOf(T, field.name) -
                             @offsetOf(T, ti.fields[i - 1].name) -
                             @sizeOf(ti.fields[i - 1].type),
-                    .isArray = if (@typeInfo(field.type) == .array)
+                    .isArray = if (@typeInfo(field.type) == .@"struct" and
+                        @hasField(field.type, "ptr"))
                         true
                     else
                         false,
@@ -377,6 +437,16 @@ fn typeToDataType(T: type) ?*const open62541.UA_DataType {
                     "Unsupported floating type: {}",
                     .{float},
                 ));
+        },
+        .@"struct" => |str| {
+            inline for (str.fields) |field| {
+                if (comptime std.mem.eql(u8, "ptr", field.name)) {
+                    return typeToDataType(
+                        @typeInfo(field.type).pointer.child,
+                    );
+                }
+            }
+            @compileError("Unsupported struct type");
         },
         .bool => return open62541.UA_DataType_get(
             @intFromEnum(UADataTypeKind.UA_DATATYPEKIND_BOOLEAN),

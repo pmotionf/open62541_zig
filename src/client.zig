@@ -13,7 +13,10 @@ pub fn main(init: std.process.Init) !void {
     defer open62541.UA_Client_delete(client);
     var retval = open62541.UA_ClientConfig_setDefault(open62541.UA_Client_getConfig(client));
     try helper.checkStatusCode(retval);
-    retval = open62541.UA_Client_connect(client, @constCast("opc.tcp://fedora:4840"));
+    retval = open62541.UA_Client_connect(
+        client,
+        @constCast("opc.tcp://fedora:4840"),
+    );
     try helper.checkStatusCode(retval);
     const config = open62541.UA_Client_getConfig(client);
     var custom_data_types: [*c]open62541.UA_DataTypeArray = null;
@@ -68,11 +71,13 @@ pub fn main(init: std.process.Init) !void {
         client,
         open62541.UA_NODEID_STRING(1, @constCast("OPC_Node_Data")),
     );
-    const node_data: *helper.OPCNodeData = @ptrCast(@alignCast(attr.data));
-    std.log.debug(
-        "{}",
-        .{node_data},
-    );
+    const node_data: [*]helper.OPCNodeData = @ptrCast(@alignCast(attr.data));
+    for (0..attr.arrayLength) |i| {
+        std.log.debug(
+            "{f}",
+            .{node_data[i]},
+        );
+    }
 }
 
 fn browseAddressSpace(

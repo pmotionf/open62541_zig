@@ -195,11 +195,62 @@ fn simulatePLCInformationModel(
             .Test = 10,
         },
     );
+    init_val.ConnetLines.len = 3;
+    init_val.ConnetLines.ptr = @ptrCast(@alignCast(open62541.UA_Array_new(
+        3,
+        config.*.customDataTypes.*.types,
+    )));
+    init_val.ConnetLines.ptr[0] = 10;
+    init_val.ConnetLines.ptr[1] = 20;
+    init_val.ConnetLines.ptr[2] = 30;
+
+    const Val = Slice(helper.OPCNodeData);
+    var val: Val = .{
+        .len = 10,
+        .ptr = @ptrCast(@alignCast(open62541.UA_Array_new(
+            10,
+            config.*.customDataTypes.*.types,
+        ))),
+    };
+    for (0..val.len) |i| {
+        var init = std.mem.zeroInit(
+            helper.OPCNodeData,
+            .{
+                .LineNo = @as(i16, @intCast(i)),
+                .IsShuttle = 10,
+                .OverCurrent = true,
+                .Test = 10,
+            },
+        );
+        init.ConnetLines.len = 3;
+        init.ConnetLines.ptr = @ptrCast(@alignCast(open62541.UA_Array_new(
+            3,
+            config.*.customDataTypes.*.types,
+        )));
+        init.ConnetLines.ptr[0] = 10 + @as(i16, @intCast(i));
+        init.ConnetLines.ptr[1] = 20 + @as(i16, @intCast(i));
+        init.ConnetLines.ptr[2] = 30 + @as(i16, @intCast(i));
+        val.ptr[i] = init;
+    }
+
     const var_node = try addVariable(
         server,
         ns_idx,
-        helper.OPCNodeData,
         &init_val,
+        &data_type_extended.extern_data_type,
+        "OPC_Node_Data_Scalar",
+        "OPC Node Data Scalar",
+        global_vars_node,
+        open62541.UA_NODEID_NUMERIC(0, open62541.UA_NS0ID_HASCOMPONENT),
+        dummy_variable_type_node,
+    );
+    const dimensions = try gpa.alloc(open62541.UA_UInt32, 1);
+    dimensions[0] = 10;
+    _ = try addArrayVariable(
+        server,
+        ns_idx,
+        &val,
+        dimensions,
         &data_type_extended.extern_data_type,
         "OPC_Node_Data",
         "OPC Node Data",
@@ -295,7 +346,7 @@ fn addVariableType(
         @ptrCast(@constCast(node_display_name)),
     );
     attr.dataType = data_type.typeId;
-    attr.valueRank = open62541.UA_VALUERANK_SCALAR;
+    attr.valueRank = open62541.UA_VALUERANK_ANY;
     var zero_val = std.mem.zeroInit(T, .{});
     std.log.debug("{}", .{zero_val});
     // This method is a shortcut to get the custom data types that is already added to the server. The examples use actual UA_DataType, but since UA_DataType is opaque, we have problem in casting it.
@@ -328,8 +379,8 @@ fn addVariableType(
 fn addVariable(
     server: ?*open62541.UA_Server,
     ns_idx: open62541.UA_UInt16,
-    T: type,
-    val: *T,
+    // T: type,
+    val: anytype,
     data_type: *helper.UA_DataType.Extern,
     node_identifier_string: []const u8,
     node_display_name: []const u8,
@@ -337,7 +388,7 @@ fn addVariable(
     parent_reference_node_id: open62541.UA_NodeId,
     type_definition_node_id: open62541.UA_NodeId,
 ) !open62541.UA_NodeId {
-    if (@typeInfo(T) != .@"struct") @compileError("Type must be struct");
+    // if (@typeInfo(T) != .@"struct") @compileError("Type must be struct");
     const res = open62541.UA_NODEID_STRING(
         ns_idx,
         @ptrCast(@constCast(node_identifier_string)),
@@ -348,13 +399,62 @@ fn addVariable(
         @ptrCast(@constCast(node_display_name)),
     );
     attr.dataType = data_type.typeId;
-    attr.valueRank = open62541.UA_VALUERANK_SCALAR;
+    attr.valueRank = open62541.UA_VALUERANK_ANY;
     const config = open62541.UA_Server_getConfig(server);
     open62541.UA_Variant_setScalar(
         &attr.value,
         @ptrCast(val),
         config.*.customDataTypes.*.types,
     );
+
+    const code = open62541.UA_Server_addVariableNode(
+        server,
+        res,
+        parent_node_id,
+        parent_reference_node_id,
+        open62541.UA_QUALIFIEDNAME(ns_idx, @ptrCast(@constCast(node_display_name))),
+        type_definition_node_id,
+        attr,
+        null,
+        null,
+    );
+    try helper.checkStatusCode(code);
+    return res;
+}
+
+/// Add variable node to the server and return the resulting node.
+fn addArrayVariable(
+    server: ?*open62541.UA_Server,
+    ns_idx: open62541.UA_UInt16,
+    val: anytype,
+    dimensions: []open62541.UA_UInt32,
+    data_type: *helper.UA_DataType.Extern,
+    node_identifier_string: []const u8,
+    node_display_name: []const u8,
+    parent_node_id: open62541.UA_NodeId,
+    parent_reference_node_id: open62541.UA_NodeId,
+    type_definition_node_id: open62541.UA_NodeId,
+) !open62541.UA_NodeId {
+    const res = open62541.UA_NODEID_STRING(
+        ns_idx,
+        @ptrCast(@constCast(node_identifier_string)),
+    );
+    var attr = open62541.UA_VariableAttributes_default;
+    attr.displayName = open62541.UA_LOCALIZEDTEXT(
+        @constCast("en-us"),
+        @ptrCast(@constCast(node_display_name)),
+    );
+    attr.dataType = data_type.typeId;
+    attr.valueRank = open62541.UA_VALUERANK_ONE_DIMENSION;
+    const config = open62541.UA_Server_getConfig(server);
+    open62541.UA_Variant_setArray(
+        &attr.value,
+        @ptrCast(val.ptr),
+        dimensions[0],
+        config.*.customDataTypes.*.types,
+    );
+    attr.arrayDimensionsSize = dimensions.len;
+    attr.arrayDimensions = dimensions.ptr;
 
     const code = open62541.UA_Server_addVariableNode(
         server,
@@ -404,4 +504,14 @@ fn addObject(
     );
     try helper.checkStatusCode(code);
     return res;
+}
+
+fn Slice(T: type) type {
+    return @Struct(
+        .@"extern",
+        null,
+        &.{ "len", "ptr" },
+        &.{ usize, [*]allowzero T },
+        &.{ .{}, .{} },
+    );
 }
