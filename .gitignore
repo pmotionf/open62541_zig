@@ -7,12 +7,12 @@
 !*.md
 !LICENSE-MIT
 !.gitignore
-!assets/**
 !build.zig
 !build.zig.zon
 !.github/**
-!protocol/**
-!*.zig
+!src/**
+!deps/**
+!examples/**
 
 # Blacklist (overrides Whitelist)
 zig-out/**
