@@ -400,6 +400,7 @@ fn addVariable(
     );
     attr.dataType = data_type.typeId;
     attr.valueRank = open62541.UA_VALUERANK_ANY;
+    attr.accessLevel = open62541.UA_ACCESSLEVELMASK_WRITE | open62541.UA_ACCESSLEVELMASK_READ;
     const config = open62541.UA_Server_getConfig(server);
     open62541.UA_Variant_setScalar(
         &attr.value,
@@ -455,6 +456,7 @@ fn addArrayVariable(
     );
     attr.arrayDimensionsSize = dimensions.len;
     attr.arrayDimensions = dimensions.ptr;
+    attr.accessLevel = open62541.UA_ACCESSLEVELMASK_WRITE | open62541.UA_ACCESSLEVELMASK_READ;
 
     const code = open62541.UA_Server_addVariableNode(
         server,

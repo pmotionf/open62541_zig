@@ -8,15 +8,19 @@ pub fn main(init: std.process.Init) !void {
             std.debug.dumpErrorReturnTrace(trace);
         }
     }
-    _ = init;
+    const io = init.io;
     const client = open62541.UA_Client_new();
     defer open62541.UA_Client_delete(client);
     var retval = open62541.UA_ClientConfig_setDefault(open62541.UA_Client_getConfig(client));
     try helper.checkStatusCode(retval);
     retval = open62541.UA_Client_connect(
         client,
-        @constCast("opc.tcp://fedora:4840"),
+        @constCast("opc.tcp://192.168.250.1:4840"),
     );
+    // retval = open62541.UA_Client_connect(
+    //     client,
+    //     @constCast("opc.tcp://localhost:4840"),
+    // );
     try helper.checkStatusCode(retval);
     const config = open62541.UA_Client_getConfig(client);
     var custom_data_types: [*c]open62541.UA_DataTypeArray = null;
@@ -31,52 +35,69 @@ pub fn main(init: std.process.Init) !void {
     config.*.customDataTypes = custom_data_types;
 
     // Read value
-    const node_id = open62541.UA_NODEID_NUMERIC(
-        0,
-        open62541.UA_NS0ID_SERVER_SERVERSTATUS_CURRENTTIME,
-    );
-    var variant = try read_attribute(client, node_id);
-    defer helper.UA_Clear(
-        @ptrCast(@alignCast(&variant)),
-        open62541.UA_DATATYPEKIND_VARIANT,
-    );
-    const raw_date: *open62541.UA_DateTime =
-        @ptrCast(@alignCast(variant.data));
-    const dts = open62541.UA_DateTime_toStruct(raw_date.*);
-    std.log.debug(
-        "date is: {}-{}-{} {}:{}:{}.{d:.3}",
-        .{
-            dts.day,
-            dts.month,
-            dts.year,
-            dts.hour,
-            dts.min,
-            dts.sec,
-            dts.milliSec,
-        },
-    );
-    try browseAddressSpace(
-        client,
-        open62541.UA_NODEID_NUMERIC(0, open62541.UA_NS0ID_OBJECTSFOLDER),
-    );
-    const the_answer_variant = try read_attribute(
-        client,
-        open62541.UA_NODEID_STRING(1, @constCast("the.answer")),
-    );
-    std.log.debug(
-        "the.answer: {}",
-        .{@as(*open62541.UA_UInt32, @ptrCast(@alignCast(the_answer_variant.data))).*},
-    );
-    const attr = try read_attribute(
-        client,
-        open62541.UA_NODEID_STRING(1, @constCast("OPC_Node_Data")),
-    );
-    const node_data: [*]helper.OPCNodeData = @ptrCast(@alignCast(attr.data));
-    for (0..attr.arrayLength) |i| {
-        std.log.debug(
-            "{f}",
-            .{node_data[i]},
+    // const node_id = open62541.UA_NODEID_NUMERIC(
+    //     0,
+    //     open62541.UA_NS0ID_SERVER_SERVERSTATUS_CURRENTTIME,
+    // );
+    // var variant = try read_attribute(client, node_id);
+    // defer helper.UA_Clear(
+    //     @ptrCast(@alignCast(&variant)),
+    //     open62541.UA_DATATYPEKIND_VARIANT,
+    // );
+    // const raw_date: *open62541.UA_DateTime =
+    //     @ptrCast(@alignCast(variant.data));
+    // const dts = open62541.UA_DateTime_toStruct(raw_date.*);
+    // std.log.debug(
+    //     "date is: {}-{}-{} {}:{}:{}.{d:.3}",
+    //     .{
+    //         dts.day,
+    //         dts.month,
+    //         dts.year,
+    //         dts.hour,
+    //         dts.min,
+    //         dts.sec,
+    //         dts.milliSec,
+    //     },
+    // );
+    // try browseAddressSpace(
+    //     client,
+    //     open62541.UA_NODEID_NUMERIC(0, open62541.UA_NS0ID_OBJECTSFOLDER),
+    // );
+    // const the_answer_variant = try read_attribute(
+    //     client,
+    //     open62541.UA_NODEID_STRING(1, @constCast("the.answer")),
+    // );
+    // std.log.debug(
+    //     "the.answer: {}",
+    //     .{@as(*open62541.UA_UInt32, @ptrCast(@alignCast(the_answer_variant.data))).*},
+    // );
+    // const attr = try read_attribute(
+    //     client,
+    //     open62541.UA_NODEID_STRING(4, @constCast("OPC_Node")),
+    // );
+    // const target =
+    //     open62541.UA_NODEID_STRING(1, @constCast("OPC_Node_Data"));
+    const target =
+        open62541.UA_NODEID_STRING(4, @constCast("NodeData"));
+    for (1..11) |i| {
+        var timestamp: std.Io.Timestamp = .now(io, .awake);
+        const attr = try read_attribute(client, target);
+        var node_data: []helper.OPCNodeData = &.{};
+        node_data.len = attr.arrayLength;
+        node_data.ptr = @ptrCast(@alignCast(attr.data));
+        std.log.debug("{f}", .{node_data[9]});
+        node_data[9].BoardNo = @as(i16, @intCast(i));
+        try writeAttribute(
+            client,
+            target,
+            @ptrCast(@alignCast(node_data.ptr)),
+            node_data.len,
+            attr.type,
         );
+        std.log.info("duration: {f}", .{timestamp.untilNow(io, .awake)});
+        // for (node_data) |node| {
+        //     std.log.debug("{f}", .{node});
+        // }
     }
 }
 
@@ -192,4 +213,18 @@ fn read_attribute(
     );
     try helper.checkStatusCode(code);
     return variant;
+}
+
+fn writeAttribute(
+    client: ?*open62541.UA_Client,
+    node_id: open62541.UA_NodeId,
+    value: ?*anyopaque,
+    size: usize,
+    T: ?*const open62541.UA_DataType,
+) !void {
+    var variant: open62541.UA_Variant = .{};
+    open62541.UA_Variant_setArray(&variant, value, size, T);
+    try helper.checkStatusCode(
+        open62541.UA_Client_writeValueAttribute(client, node_id, &variant),
+    );
 }
