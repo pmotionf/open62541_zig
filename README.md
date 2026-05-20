@@ -8,10 +8,10 @@ In open62541, when you are referring a datatype, usually we use
 UA_TYPES[UA_TYPES_XXX]
 ```
 
-Since UA_DataType is translated as opaque, this convention cannot be used anymorer. To have similar output, use
+Since UA_DataType is translated as opaque, this convention cannot be used anymore. To have similar output, use
 ```zig
-import zigopc = @import("zigopc");
-import open62541 = zigopc.c;
+const zigopc = @import("zigopc");
+const open62541 = zigopc.c;
 
-open62541.UA_DataType_get(open62541.UA_TYPES_INT32);
+const Int32 = open62541.UA_DataType_get(open62541.UA_TYPES_INT32);
 ```
