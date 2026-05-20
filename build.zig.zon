@@ -1,6 +1,6 @@
 .{
-    .name = .open62541_zig,
-    .version = "0.0.0",
+    .name = .zigopc,
+    .version = "0.1.0",
     .fingerprint = 0x22c3a3e3ac8c5543,
     .paths = .{""},
 

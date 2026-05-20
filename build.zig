@@ -105,24 +105,3 @@ fn buildLibOpen62541(
     );
     return lib;
 }
-
-fn buildOPCTypesHelper(
-    b: *std.Build,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-) *std.Build.Step.Compile {
-    const mod = b.createModule(.{
-        .target = target,
-        .optimize = optimize,
-        .link_libc = true,
-    });
-    // mod.addObjectFile(b.path("vendor/libopen62541.a"));
-    mod.addCSourceFile(.{ .file = b.path("vendor/open62541.c") });
-    const lib = b.addLibrary(.{
-        .name = "open62541",
-        .root_module = mod,
-    });
-    // Install the headers, so that linking this library makes those headers available.
-    lib.installHeader(b.path("vendor/open62541.h"), "open62541.h");
-    return lib;
-}
