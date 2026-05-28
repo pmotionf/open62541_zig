@@ -10,7 +10,7 @@ pub fn build(b: *std.Build) !void {
         bool,
         "build_example",
         "Build working OPC UA examples in zig",
-    ) orelse false;
+    ) orelse true;
 
     const translate_c = b.dependency("translate_c", .{});
     const open62541 = buildLibOpen62541(b, target, optimize);

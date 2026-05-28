@@ -1,7 +1,7 @@
 .{
     .name = .zigopc,
     .version = "0.1.0",
-    .fingerprint = 0x22c3a3e3ac8c5543,
+    .fingerprint = 0x91a7908b541d0fa5,
     .paths = .{""},
 
     .dependencies = .{

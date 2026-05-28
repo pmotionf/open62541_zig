@@ -27,18 +27,39 @@ pub fn UA_Clear(p: ?*anyopaque, type_idx: usize) void {
 
 /// Generated Bad StatusCode from OPC UA as error set
 pub const Error = err: {
+    @setEvalBranchQuota(2000);
     var T: type = error{};
-    @setEvalBranchQuota(70000);
-    const status_code_file = @embedFile("Opc.Ua.StatusCodes.csv");
-    var iterator = std.mem.tokenizeAny(u8, status_code_file, "\n");
-    while (iterator.next()) |line| {
-        // Guaranteed to be found each line.
-        const delimiter_idx = std.mem.find(u8, line, ",").?;
-        if (std.mem.startsWith(u8, line, "Bad")) {
-            T = T || @TypeOf(@field(anyerror, line[0..delimiter_idx]));
+    const fields = @typeInfo(StatusCode).@"enum".fields;
+    for (fields) |field| {
+        if (std.mem.startsWith(u8, field.name, "Bad")) {
+            T = T || @TypeOf(@field(anyerror, field.name));
         }
     }
     break :err T;
+};
+
+pub const StatusCode = response_code: {
+    const status_code_file = @embedFile("Opc.Ua.StatusCodes.csv");
+    @setEvalBranchQuota(90000);
+    const size = std.mem.count(u8, status_code_file, "\n") + 1;
+    const TagInt = std.math.IntFittingRange(0, size);
+    var field_names: [size][]const u8 = undefined;
+    var field_values: [size]TagInt = undefined;
+    var iterator = std.mem.tokenizeAny(u8, status_code_file, "\n");
+    var idx = 0;
+    while (iterator.next()) |line| {
+        // Guaranteed to be found each line.
+        const delimiter_idx = std.mem.find(u8, line, ",").?;
+        field_names[idx] = line[0..delimiter_idx];
+        field_values[idx] = idx;
+        idx += 1;
+    }
+    break :response_code @Enum(
+        TagInt,
+        .nonexhaustive,
+        &field_names,
+        &field_values,
+    );
 };
 
 pub const UA_BrowseResponse = extern struct {
