@@ -40,18 +40,37 @@ pub const Error = err: {
 
 pub const StatusCode = response_code: {
     const status_code_file = @embedFile("Opc.Ua.StatusCodes.csv");
-    @setEvalBranchQuota(90000);
-    const size = std.mem.count(u8, status_code_file, "\n") + 1;
-    const TagInt = std.math.IntFittingRange(0, size);
+    @setEvalBranchQuota(150000);
+    // Additional 4 is defined by open62541 library
+    const size = std.mem.count(u8, status_code_file, "\n") + 1 + 5;
+    const TagInt = c.UA_StatusCode;
     var field_names: [size][]const u8 = undefined;
     var field_values: [size]TagInt = undefined;
     var iterator = std.mem.tokenizeAny(u8, status_code_file, "\n");
-    var idx = 0;
+    field_names[0] = "UA_STATUSCODE_INFOTYPE_DATAVALUE";
+    field_values[0] = 0x00000400;
+    field_names[1] = "UA_STATUSCODE_INFOBITS_OVERFLOW";
+    field_values[1] = 0x00000080;
+    field_names[2] = "UA_STATUSCODE_GOOD";
+    field_values[2] = 0x00000000;
+    field_names[3] = "UA_STATUSCODE_UNCERTAIN";
+    field_values[3] = 0x40000000;
+    field_names[4] = "UA_STATUSCODE_BAD";
+    field_values[4] = 0x80000000;
+    var idx = 5;
     while (iterator.next()) |line| {
-        // Guaranteed to be found each line.
-        const delimiter_idx = std.mem.find(u8, line, ",").?;
-        field_names[idx] = line[0..delimiter_idx];
-        field_values[idx] = idx;
+        var line_iterator = std.mem.tokenizeAny(u8, line, ",");
+        field_names[idx] = line_iterator.next().?;
+        const value = line_iterator.next().?;
+        // @compileLog(value);
+        field_values[idx] = std.fmt.parseInt(
+            TagInt,
+            value,
+            0,
+        ) catch |e| {
+            // @compileLog(value, "\n");
+            @compileError(@errorName(e));
+        };
         idx += 1;
     }
     break :response_code @Enum(
