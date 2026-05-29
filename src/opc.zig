@@ -410,3 +410,40 @@ fn typeToDataType(T: type) ?*const c.UA_DataType {
         ), // TODO: Support more data type.
     }
 }
+
+pub const UA_ConnectionState = enum(c_int) {
+    CLOSED,
+    OPENING,
+    ESTABLISHED,
+    CLOSING,
+    BLOCKING,
+    REOPENING,
+    _,
+};
+
+pub const UA_SecureChannelState = enum(c_int) {
+    CLOSED = 0,
+    REVERSE_LISTENING,
+    CONNECTING,
+    CONNECTED,
+    REVERSE_CONNECTED,
+    RHE_SENT,
+    HEL_SENT,
+    HEL_RECEIVED,
+    ACK_SENT,
+    ACK_RECEIVED,
+    OPN_SENT,
+    OPEN,
+    CLOSING,
+    _,
+};
+
+pub const UA_SessionState = enum(c_int) {
+    CLOSED = 0,
+    CREATE_REQUESTED,
+    CREATED,
+    ACTIVATE_REQUESTED,
+    ACTIVATED,
+    CLOSING,
+    _,
+};
