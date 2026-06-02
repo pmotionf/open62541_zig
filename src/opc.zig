@@ -447,3 +447,158 @@ pub const UA_SessionState = enum(c_int) {
     CLOSING,
     _,
 };
+
+pub const NodeId = struct {
+    namespace: u16,
+    identifier: union(enum) {
+        string: []const u8,
+        numeric: u32,
+        guid: Guid,
+        byte: []const u8,
+    },
+
+    const Guid = struct {
+        data1: u32,
+        data2: u16,
+        data3: u16,
+        data4: [8]u8,
+
+        fn parse(str: []const u8) ParseError!Guid {
+            // Validate guid xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+            var iterator = std.mem.tokenizeAny(u8, str, "-");
+            const first = iterator.next() orelse
+                return error.InvalidNodeId;
+            const second = iterator.next() orelse
+                return error.InvalidNodeId;
+            const third = iterator.next() orelse
+                return error.InvalidNodeId;
+            const fourth = iterator.next() orelse
+                return error.InvalidNodeId;
+            const fifth = iterator.next() orelse
+                return error.InvalidNodeId;
+            if (iterator.next() != null) return error.InvalidNodeId;
+            if (first.len != 8 or
+                second.len != 4 or
+                third.len != 4 or
+                fourth.len != 4 or
+                fifth.len != 12) return error.InvalidNodeId;
+            var res: Guid = undefined;
+            res.data1 = try std.fmt.parseInt(u32, first, 16);
+            res.data2 = try std.fmt.parseInt(u16, second, 16);
+            res.data3 = try std.fmt.parseInt(u16, third, 16);
+            for (0..2) |i| {
+                res.data4[i] = try std.fmt.parseInt(
+                    u8,
+                    fourth[i * 2 .. (i + 1) * 2],
+                    16,
+                );
+            }
+            for (0..6) |i| {
+                res.data4[i + 2] = try std.fmt.parseInt(
+                    u8,
+                    fifth[i * 2 .. (i + 1) * 2],
+                    16,
+                );
+            }
+            return res;
+        }
+
+        pub fn format(
+            self: @This(),
+            writer: *std.Io.Writer,
+        ) std.Io.Writer.Error!void {
+            // Print the first three numerical blocks with lower-case hex zero-padding
+            try writer.print(
+                "{x:0>8}-{x:0>4}-{x:0>4}-",
+                .{ self.data1, self.data2, self.data3 },
+            );
+
+            // Print the first 2 bytes of data4 (the 4th text block)
+            try writer.print(
+                "{x:0>2}{x:0>2}-",
+                .{ self.data4[0], self.data4[1] },
+            );
+
+            // Print the remaining 6 bytes of data4 (the 5th text block)
+            for (self.data4[2..8]) |b| {
+                try writer.print("{x:0>2}", .{b});
+            }
+        }
+    };
+
+    const ParseError = (error{InvalidNodeId} || std.fmt.ParseIntError);
+
+    /// Parse OPC node id from strings. Must be in ns=x;s/b/g/n=y where x
+    /// is 2 byte unsigned integer and y depends on the type of node id
+    /// identifier.
+    pub fn parse(node_id: []const u8) ParseError!NodeId {
+        const separator_pos = std.mem.find(u8, node_id, ";") orelse
+            return error.InvalidNodeId;
+        var res: NodeId = undefined;
+        res.namespace = try std.fmt.parseInt(
+            u8,
+            std.mem.cutPrefix(u8, node_id[0..separator_pos], "ns=") orelse
+                return error.InvalidNodeId,
+            0,
+        );
+        const identifier_slice = node_id[separator_pos + 1 ..];
+        const identifier, const value = std.mem.cut(
+            u8,
+            identifier_slice,
+            "=",
+        ) orelse return error.InvalidNodeId;
+        if (std.mem.eql(u8, identifier, "s")) {
+            res.identifier = .{ .string = value };
+        } else if (std.mem.eql(u8, identifier, "b")) {
+            res.identifier = .{ .byte = value };
+        } else if (std.mem.eql(u8, identifier, "g")) {
+            res.identifier = .{ .guid = try Guid.parse(identifier_slice) };
+        } else if (std.mem.eql(u8, identifier, "n")) {
+            res.identifier = .{
+                .numeric = try std.fmt.parseInt(u32, value, 0),
+            };
+        } else return error.InvalidNodeId;
+        return res;
+    }
+
+    /// Same to parse but identifier is allocated for string and byte
+    /// identifier. For numeric and guid identifier, use `parse()`. Caller
+    /// own memory.
+    pub fn parseAlloc(
+        gpa: std.mem.Allocator,
+        node_id: []const u8,
+    ) (std.mem.Allocator.Error || ParseError)!NodeId {
+        var res = try parse(node_id);
+        switch (res.identifier) {
+            .string => |val| {
+                res.identifier.string = try gpa.dupe(u8, val);
+            },
+            .byte => |val| {
+                res.identifier.byte = try gpa.dupe(u8, val);
+            },
+            else => {},
+        }
+        return res;
+    }
+
+    pub fn deinit(self: NodeId, gpa: std.mem.Allocator) void {
+        switch (self.identifier) {
+            .string, .byte => |val| gpa.free(val),
+            else => {},
+        }
+    }
+
+    pub fn toOpen62541(self: NodeId) c.UA_NodeId {
+        return switch (self.identifier) {
+            .string => |s| c.UA_NODEID_STRING(self.namespace, @constCast(s.ptr)),
+            .numeric => |n| c.UA_NODEID_NUMERIC(self.namespace, n),
+            .guid => |g| c.UA_NODEID_GUID(self.namespace, .{
+                .data1 = g.data1,
+                .data2 = g.data2,
+                .data3 = g.data3,
+                .data4 = g.data4,
+            }),
+            .byte => |b| c.UA_NODEID_BYTESTRING(self.namespace, @constCast(b.ptr)),
+        };
+    }
+};
